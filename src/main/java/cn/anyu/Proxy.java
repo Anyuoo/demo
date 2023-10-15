@@ -22,11 +22,11 @@ public class Proxy {
 
 
     public boolean available() {
-        return false;
+        return true;
     }
 
     public Duration nextAvailableDuration() {
-        return null;
+        return Duration.ofMillis(10);
     }
 
     static class ProxyKey {

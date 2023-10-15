@@ -1,14 +1,11 @@
 package cn.anyu;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class TaskQueue implements Runnable {
+public class ResourceQueue implements Runnable {
     final Ability ability;
     final Queue<Task> queue;
     final int capacity;
@@ -20,16 +17,18 @@ public class TaskQueue implements Runnable {
      * 0 : wait state, load but wait dispatch
      * 1 : run state, load and dispatch
      */
-    volatile int state;
+    volatile int state = STOPPED_STATE;
 
     static final int STOPPED_STATE = -1;
     static final int AWAITED_STATE = 0;
-    static final int RUNNING_STATE = -1;
+    static final int RUNNING_STATE = 1;
+
     public void changeState(int state) {
         this.state = state;
     }
 
-    public TaskQueue(Ability ability, int capacity, Runnable activeEvent) {
+
+    public ResourceQueue(Ability ability, int capacity, Runnable activeEvent) {
         this.ability = ability;
         this.capacity = capacity;
         this.queue = new ArrayDeque<>(capacity);
@@ -44,19 +43,34 @@ public class TaskQueue implements Runnable {
         }
 
         try {
-            Task task = queue.poll();
-            if (task == null) {
+            Task t = queue.poll();
+            if (t == null) {
                 return null;
             }
             notFull.signal();
-            return task;
+            return t;
         } finally {
             lock.unlock();
         }
     }
 
+   private synchronized boolean run0() {
+        if (state == STOPPED_STATE) {
+            state = AWAITED_STATE;
+            return true;
+        }
+        return false;
+    }
+
+    public void stop() {
+        state = STOPPED_STATE;
+    }
+
     @Override
     public void run() {
+        if (!run0()) {
+            return;
+        }
         try {
             while (true) {
                 if (state == STOPPED_STATE) {
@@ -100,20 +114,26 @@ public class TaskQueue implements Runnable {
     }
 
     private List<Task> loadTasks(Ability ability) {
+        Random random = new Random();
+
+        if (random.nextInt(10) > 2) {
+            return Arrays.asList(new Task(ability.id),new Task(ability.id));
+        }
         return new ArrayList<>();
     }
 
 
-    public boolean tryAwait() throws InterruptedException {
-        lock.lockInterruptibly();
-        try {
-            if (queue.size() == 0) {
-                changeState(AWAITED_STATE);
-                return true;
+    public boolean tryAwait() {
+        if (lock.tryLock()) {
+            try {
+                if (queue.size() == 0) {
+                    changeState(AWAITED_STATE);
+                    return true;
+                }
+            } finally {
+                lock.unlock();
             }
-            return false;
-        } finally {
-            lock.unlock();
         }
+        return false;
     }
 }
